@@ -1,22 +1,24 @@
 {
   "name": "door-store-app",
   "version": "0.1.0",
+  "description": "A modern desktop application template built with Next.js, Electron, and SQLite",
+  "author": "Birouk Mohammed islam <islam.birouk.2004@gmail.com>",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
-    "dev:next": "next dev -p 3000",
-    "dev:electron": "wait-on http://localhost:3000 && electron .",
+    "dev:next": "cross-env NODE_ENV=development next dev -p 3000",
+    "dev:electron": "wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .",
     "dev": "concurrently \"npm:dev:next\" \"npm:dev:electron\"",
-    "rebuild": "electron-rebuild",
-    "postinstall": "npm run rebuild",
-    "build:next": "next build",
-    "start:next": "next start -p 3000",
-    "dist": "npm run build:next && electron-builder",
-    "build": "npm run build:next && electron-builder --prepackaged"
-  },
+    "postinstall": "electron-builder install-app-deps",
+
+    "build:next": "cross-env NODE_ENV=production next build",
+    "start:next": "cross-env NODE_ENV=production next start -p 3000",
+
+    "dist": "npm run build:next && cross-env NODE_ENV=production electron-builder",
+    "build": "npm run build:next && cross-env NODE_ENV=production electron-builder --prepackaged"
+},
   "dependencies": {
     "better-sqlite3": "^12.2.0",
-    "electron": "^37.2.6",
     "next": "15.4.6",
     "react": "19.1.0",
     "react-dom": "19.1.0"
@@ -31,8 +33,8 @@
     "@types/react-dom": "^19",
     "concurrently": "^9.2.0",
     "cross-env": "^10.0.0",
+    "electron": "^37.2.6",
     "electron-builder": "^26.0.12",
-    "electron-rebuild": "^3.2.9",
     "eslint": "^9",
     "eslint-config-next": "15.4.6",
     "tailwindcss": "^4",
@@ -47,14 +49,24 @@
       "buildResources": "assets"
     },
     "files": [
-      "**/*",
+      "out/**",
+      "electron/**",
+      "src/**",
+      "package.json",
+      "node_modules/**",
+      "database/**",
       "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md}"
-    ],
+  ],
+"extraResources": [
+  { "from": "database/schema.sql", "to": "schema.sql" }
+],
+
     "win": {
       "target": [
         "nsis",
         "portable"
-      ]
+      ],
+      "forceCodeSigning": false
     }
   }
 }

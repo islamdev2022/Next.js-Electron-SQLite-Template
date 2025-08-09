@@ -78,6 +78,24 @@ A modern desktop application template built with **Next.js**, **Electron**, and 
 
 This will start both the Next.js development server and the Electron app simultaneously.
 
+## ⚡ Quick Build Guide
+
+**To create a Windows .exe application:**
+
+```bash
+# 1. Install dependencies
+npm install
+
+# 2. Build the application
+npm run dist
+
+# 3. Find your .exe in the dist/ folder
+# - DoorStore Setup.exe (installer)
+# - DoorStore.exe (portable)
+```
+
+**That's it!** Your application is ready for distribution.
+
 ## 📁 Project Structure
 
 ```
@@ -101,14 +119,14 @@ door-store-app/
 
 ## 📋 Available Scripts
 
-| Command                | Description                                    |
-| ---------------------- | ---------------------------------------------- |
-| `npm run dev`          | Start development (Next.js + Electron)         |
-| `npm run dev:next`     | Start only Next.js development server          |
-| `npm run dev:electron` | Start only Electron (requires Next.js running) |
-| `npm run build:next`   | Build Next.js for production                   |
-| `npm run rebuild`      | Rebuild native modules for Electron            |
-| `npm run dist`         | Build and package for distribution             |
+| Command                | Description                                    | Usage                    |
+| ---------------------- | ---------------------------------------------- | ------------------------ |
+| `npm run dev`          | Start development (Next.js + Electron)         | Development              |
+| `npm run dev:next`     | Start only Next.js development server          | Frontend development     |
+| `npm run dev:electron` | Start only Electron (requires Next.js running) | Electron testing         |
+| `npm run build:next`   | Build Next.js for production                   | Prepare for packaging    |
+| `npm run postinstall`  | Rebuild native modules for Electron            | After dependency changes |
+| `npm run dist`         | **Build complete .exe application**            | **Create distributable** |
 
 ## 🔧 Development Guide
 
@@ -164,39 +182,189 @@ CREATE TABLE products (
 
 ## 🏗️ Building for Production
 
-### Development Build
+### Prerequisites for Building
+
+Before building your application, ensure you have:
+
+- **Node.js** (v18 or higher)
+- **Python** (for native module compilation)
+- **Visual Studio Build Tools** (Windows) or **Xcode** (macOS)
+
+### Step-by-Step Build Process
+
+#### 1. Install Dependencies
+
+```bash
+npm install
+```
+
+#### 2. Rebuild Native Modules for Electron
+
+```bash
+npm run postinstall
+```
+
+This rebuilds native modules like `better-sqlite3` to be compatible with Electron.
+
+#### 3. Build Next.js for Production
 
 ```bash
 npm run build:next
 ```
 
-### Create Distributables
+This creates an optimized static export in the `out/` directory.
+
+#### 4. Package the Electron App
 
 ```bash
 npm run dist
 ```
 
-This creates installers in the `dist/` folder for your current platform.
+This creates distributable packages in the `dist/` folder.
 
-### Cross-Platform Building
+### 📦 Build Outputs
 
-Configure additional platforms in `package.json`:
+After running `npm run dist`, you'll find these files in the `dist/` folder:
+
+#### Windows
+
+- **`DoorStore Setup.exe`** - NSIS installer (recommended for distribution)
+- **`DoorStore.exe`** - Portable executable (no installation required)
+- **`win-unpacked/`** - Unpacked application folder
+
+#### Available Build Targets
+
+You can customize build targets in `package.json`:
 
 ```json
 {
   "build": {
     "win": {
-      "target": ["nsis", "portable"]
+      "target": [
+        "nsis", // Creates installer
+        "portable", // Creates portable .exe
+        "zip" // Creates zip archive
+      ]
     },
+    "mac": {
+      "target": [
+        "dmg", // macOS disk image
+        "zip" // Zip archive
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage", // Portable Linux app
+        "deb", // Debian package
+        "rpm" // Red Hat package
+      ]
+    }
+  }
+}
+```
+
+### 🐛 Common Build Issues & Solutions
+
+#### Issue: Native Module Compilation Errors
+
+```bash
+Error: The module was compiled against a different Node.js version
+```
+
+**Solution:**
+
+```bash
+npm run postinstall
+# or manually:
+npx electron-rebuild
+```
+
+#### Issue: Permission Errors (Windows)
+
+```bash
+ERROR: Cannot create symbolic link : A required privilege is not held by the client
+```
+
+**Solution:** Run PowerShell as Administrator or disable code signing:
+
+```json
+{
+  "build": {
+    "win": {
+      "forceCodeSigning": false
+    }
+  }
+}
+```
+
+#### Issue: Next.js Font Errors
+
+```bash
+assetPrefix must start with a leading slash
+```
+
+**Solution:** Remove Google Fonts for Electron builds or use system fonts (already implemented).
+
+#### Issue: CSS/JS Not Loading in Production
+
+**Solution:** Ensure proper `assetPrefix` in `next.config.ts`:
+
+```typescript
+const nextConfig: NextConfig = {
+  output: "export",
+  assetPrefix: "./", // Important for Electron
+  images: { unoptimized: true },
+};
+```
+
+### 🚀 Distribution
+
+#### For Testing
+
+1. Navigate to `dist/win-unpacked/`
+2. Run `DoorStore.exe` directly
+
+#### For Distribution
+
+1. Use `DoorStore Setup.exe` - Creates proper Windows installation
+2. Upload to your website or app store
+3. Users can install like any Windows application
+
+### 📊 Build Size Optimization
+
+To reduce build size:
+
+```bash
+# Analyze bundle size
+npm run build:next -- --analyze
+
+# Remove development dependencies from final build
+npm prune --production
+```
+
+### 🔄 Automated Building
+
+For CI/CD pipelines, create a build script:
+
+```json
+{
+  "scripts": {
+    "build:clean": "rimraf dist out .next",
+    "build:full": "npm run build:clean && npm run build:next && npm run dist"
+  }
+}
+```
+
     "mac": {
       "target": ["dmg", "zip"]
     },
     "linux": {
       "target": ["AppImage", "deb"]
     }
-  }
-}
+
 ```
+```
+
 
 ## 🎨 Customization
 
@@ -224,7 +392,7 @@ If you encounter native module errors:
 
 ```bash
 npm run rebuild
-```
+````
 
 ### Port Already in Use
 

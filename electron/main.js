@@ -1,88 +1,161 @@
+// electron/main.js
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
-const { spawn } = require("child_process");
-const isDev = process.env.NODE_ENV !== "production";
+const fs = require("fs");
+const fsp = fs.promises;
+const Database = require("better-sqlite3");
 
-let serverProcess = null;
+const isDev = process.env.NODE_ENV === "development";
 let db = null;
 
-// Initialize database
-try {
-  db = require("../database/db");
-  console.log("Database loaded successfully");
-} catch (error) {
-  console.error("Failed to load database:", error);
+async function ensureDatabase() {
+  // file name used for DB
+  const DB_FILENAME = "doorstore.sqlite";
+
+  if (isDev) {
+    // dev: keep DB in project folder for easy access
+    const devDbPath = path.join(process.cwd(), "database", DB_FILENAME);
+    await ensureDirectory(path.dirname(devDbPath));
+    return devDbPath;
+  }
+
+  // production: store DB in userData so it persists across app updates
+  const userDataPath = app.getPath("userData");
+  const prodDbPath = path.join(userDataPath, DB_FILENAME);
+
+  // if DB already exists in userData, return it
+  if (fs.existsSync(prodDbPath)) {
+    return prodDbPath;
+  }
+
+  // Try to copy a bundled empty DB or run schema to create DB
+  // The schema.sql was included via extraResources to process.resourcesPath
+  const bundledSchema = path.join(process.resourcesPath, "schema.sql");
+  console.log("Looking for bundled schema at:", bundledSchema);
+
+  // Create userData folder if necessary
+  await ensureDirectory(path.dirname(prodDbPath));
+
+  if (fs.existsSync(bundledSchema)) {
+    console.log("Found bundled schema, initializing database...");
+    // Create new DB file and run schema SQL
+    const tmpDb = new Database(prodDbPath);
+    try {
+      const schemaSql = fs.readFileSync(bundledSchema, "utf8");
+      console.log("Schema SQL loaded, length:", schemaSql.length);
+      // run every statement separated by semicolon (simple approach)
+      const statements = schemaSql
+        .split(/;\s*$/m)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      console.log("Found", statements.length, "SQL statements to execute");
+      tmpDb.transaction(() => {
+        statements.forEach((stmt, index) => {
+          console.log(
+            `Executing statement ${index + 1}:`,
+            stmt.substring(0, 50) + "..."
+          );
+          tmpDb.prepare(stmt).run();
+        });
+      })();
+      tmpDb.close();
+      console.log("Database initialized from bundled schema at", prodDbPath);
+      return prodDbPath;
+    } catch (err) {
+      console.error("Failed to initialize DB from schema:", err);
+      try {
+        tmpDb.close();
+      } catch (e) {}
+      throw err;
+    }
+  } else {
+    console.log("No bundled schema found at:", bundledSchema);
+    console.log("process.resourcesPath:", process.resourcesPath);
+    console.log("Available files in resourcesPath:");
+    try {
+      const files = fs.readdirSync(process.resourcesPath);
+      console.log(files);
+    } catch (e) {
+      console.log("Could not list files:", e.message);
+    }
+
+    // no schema bundled: just create empty DB (tables will be created on first run if your code handles it)
+    // create empty DB file
+    const tmpDb = new Database(prodDbPath);
+    tmpDb.close();
+    console.log("Created empty DB file at", prodDbPath);
+    return prodDbPath;
+  }
 }
 
-// 📌 Register IPC handlers before app is ready
-console.log("Registering IPC handlers...");
-
-ipcMain.handle("add-product", async (event, { name, price, stock }) => {
+async function ensureDirectory(dir) {
   try {
-    console.log("IPC: Adding product:", { name, price, stock });
-    if (!db) {
-      throw new Error("Database not initialized");
+    await fsp.mkdir(dir, { recursive: true });
+  } catch (e) {
+    if (e.code !== "EEXIST") throw e;
+  }
+}
+
+async function initDbConnection() {
+  try {
+    const dbPath = await ensureDatabase();
+    db = new Database(dbPath);
+    // Optional: enforce foreign keys
+    try {
+      db.pragma("foreign_keys = ON");
+    } catch (e) {}
+    console.log("Opened database at", dbPath);
+
+    // If you want to guarantee tables exist (double-check) run schema again in dev
+    if (isDev) {
+      const schemaFile = path.join(process.cwd(), "database", "schema.sql");
+      if (fs.existsSync(schemaFile)) {
+        const schemaSql = fs.readFileSync(schemaFile, "utf8");
+        const statements = schemaSql
+          .split(/;\s*$/m)
+          .map((s) => s.trim())
+          .filter(Boolean);
+        db.transaction(() => {
+          statements.forEach((stmt) => db.prepare(stmt).run());
+        })();
+        console.log("Ensured schema applied from", schemaFile);
+      }
     }
+  } catch (err) {
+    console.error("initDbConnection error:", err);
+    throw err;
+  }
+}
+
+// --- IPC handlers (use db variable)
+function registerIpcHandlers() {
+  ipcMain.handle("add-product", async (event, { name, price, stock }) => {
+    if (!db) throw new Error("Database not initialized");
     const stmt = db.prepare(
       "INSERT INTO products (name, price, stock) VALUES (?, ?, ?)"
     );
     const info = stmt.run(name, price, stock);
-    console.log("IPC: Product added successfully:", info);
     return { success: true, id: info.lastInsertRowid };
-  } catch (error) {
-    console.error("IPC: Error adding product:", error);
-    throw error;
-  }
-});
+  });
 
-ipcMain.handle("get-products", async () => {
-  try {
-    console.log("IPC: Getting products...");
-    if (!db) {
-      throw new Error("Database not initialized");
-    }
-    const products = db.prepare("SELECT * FROM products").all();
-    console.log("IPC: Products retrieved:", products);
-    return products;
-  } catch (error) {
-    console.error("IPC: Error getting products:", error);
-    throw error;
-  }
-});
+  ipcMain.handle("get-products", async () => {
+    if (!db) throw new Error("Database not initialized");
+    return db.prepare("SELECT * FROM products").all();
+  });
 
-ipcMain.handle("delete-product", async (event, id) => {
-  try {
-    console.log("IPC: Deleting product with ID:", id);
-    if (!db) {
-      throw new Error("Database not initialized");
-    }
+  ipcMain.handle("delete-product", async (event, id) => {
+    if (!db) throw new Error("Database not initialized");
     const stmt = db.prepare("DELETE FROM products WHERE id = ?");
     const info = stmt.run(id);
-    console.log("IPC: Product deleted successfully:", info);
     return { success: true, changes: info.changes };
-  } catch (error) {
-    console.error("IPC: Error deleting product:", error);
-    throw error;
-  }
-});
-
-console.log("IPC handlers registered successfully");
-
-function startNextProd() {
-  const cmd = process.platform === "win32" ? "npm.cmd" : "npm";
-  serverProcess = spawn(cmd, ["run", "start:next"], {
-    cwd: path.join(__dirname, ".."),
-    env: { ...process.env, NODE_ENV: "production" },
-    stdio: "inherit",
   });
-  serverProcess.on("exit", (code) => console.log("Next process exited", code));
+
+  // add other handlers you need...
 }
 
+// --- create window
 function createWindow() {
-  console.log("Creating window...");
   const preloadPath = path.join(__dirname, "preload.js");
-  console.log("Preload script path:", preloadPath);
-
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -93,31 +166,44 @@ function createWindow() {
     },
   });
 
-  const url = isDev ? "http://localhost:3000" : "http://localhost:3000";
-  console.log("Loading URL:", url);
-
-  win.loadURL(url);
-
-  // Open DevTools in development
   if (isDev) {
+    win.loadURL("http://localhost:3000");
     win.webContents.openDevTools();
+  } else {
+    // Production: load the static export from Next.js
+    const indexPath = path.join(__dirname, "..", "out", "index.html");
+    win.loadFile(indexPath);
   }
 
-  // Log when the window is ready
   win.webContents.once("dom-ready", () => {
     console.log("Window DOM ready");
   });
 }
 
-app.whenReady().then(() => {
-  if (!isDev) startNextProd();
-  createWindow();
+// --- app lifecycle
+app.whenReady().then(async () => {
+  try {
+    await initDbConnection();
+    registerIpcHandlers();
+    createWindow();
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  } catch (err) {
+    console.error("App init failed", err);
+    app.quit();
+  }
+});
+
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
+    app.quit();
+  }
 });
 
 app.on("before-quit", () => {
-  if (serverProcess) serverProcess.kill();
+  try {
+    if (db) db.close();
+  } catch (e) {}
 });
