@@ -55,7 +55,7 @@ A modern desktop application template built with **Next.js**, **Electron**, and 
 1. **Clone the repository**
 
    ```bash
-   git clone https://github.com/yourusername/door-store-app.git
+   git clone https://github.com/islamdev2022/Next.js-Electron-SQLite-Template
    cd door-store-app
    ```
 
@@ -97,7 +97,6 @@ door-store-app/
 ├── package.json             # Dependencies and scripts
 ├── next.config.ts           # Next.js configuration
 ├── tsconfig.json           # TypeScript configuration
-└── tailwind.config.js      # Tailwind CSS configuration
 ```
 
 ## 📋 Available Scripts
@@ -120,7 +119,7 @@ The app uses Electron's IPC (Inter-Process Communication) for secure communicati
 ```typescript
 // Add product
 await window.electronAPI.addProduct({
-  name: "Wooden Door",
+  name: "product name",
   price: 15000,
   stock: 5,
 });

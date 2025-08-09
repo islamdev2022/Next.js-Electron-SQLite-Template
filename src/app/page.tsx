@@ -81,7 +81,7 @@ export default function ProductsPage() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6">Door Store Inventory</h1>
+      <h1 className="text-3xl font-bold mb-6">Store Inventory</h1>
 
       {/* Add Product Form */}
       <div className="bg-gray-50 p-6 rounded-lg mb-6">
