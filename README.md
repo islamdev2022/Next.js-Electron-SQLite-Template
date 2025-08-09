@@ -2,7 +2,7 @@
 
 A modern desktop application template built with **Next.js**, **Electron**, and **SQLite**. This project demonstrates how to create a full-stack desktop application with a beautiful UI, local database storage, and cross-platform compatibility.
 
-![Door Store App Screenshot](https://via.placeholder.com/800x500?text=Door+Store+App+Screenshot)
+![Door Store App Screenshot](public/image.png)
 
 ## 🌟 Features
 
