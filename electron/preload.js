@@ -19,6 +19,20 @@ try {
       console.log("Preload: deleteProduct called with ID:", id);
       return ipcRenderer.invoke("delete-product", id);
     },
+    // Image operations
+    uploadImage: (imageData) => {
+      console.log("Preload: uploadImage called");
+      return ipcRenderer.invoke("upload-image", imageData);
+    },
+    getImage: (imagePath) => {
+      console.log("Preload: getImage called with path:", imagePath);
+      return ipcRenderer.invoke("get-image", imagePath);
+    },
+    // Debug database
+    debugDatabase: () => {
+      console.log("Preload: debugDatabase called");
+      return ipcRenderer.invoke("debug-database");
+    },
   });
 
   console.log("electronAPI exposed successfully");

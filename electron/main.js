@@ -106,41 +106,138 @@ async function initDbConnection() {
     } catch (e) {}
     console.log("Opened database at", dbPath);
 
-    // If you want to guarantee tables exist (double-check) run schema again in dev
-    if (isDev) {
-      const schemaFile = path.join(process.cwd(), "database", "schema.sql");
-      if (fs.existsSync(schemaFile)) {
-        const schemaSql = fs.readFileSync(schemaFile, "utf8");
-        const statements = schemaSql
-          .split(/;\s*$/m)
-          .map((s) => s.trim())
-          .filter(Boolean);
-        db.transaction(() => {
-          statements.forEach((stmt) => db.prepare(stmt).run());
-        })();
-        console.log("Ensured schema applied from", schemaFile);
-      }
-    }
+    // Always ensure schema is up to date (both dev and production)
+    await ensureSchema();
+
+    // Check and migrate existing data if needed
+    await migrateDatabase();
   } catch (err) {
     console.error("initDbConnection error:", err);
     throw err;
   }
 }
 
+// Function to ensure schema is always applied
+async function ensureSchema() {
+  try {
+    let schemaFile;
+
+    if (isDev) {
+      // Development: use schema.sql from project folder
+      schemaFile = path.join(process.cwd(), "database", "schema.sql");
+    } else {
+      // Production: use schema.sql from app resources
+      schemaFile = path.join(__dirname, "..", "database", "schema.sql");
+
+      // Fallback: try different paths for production
+      if (!fs.existsSync(schemaFile)) {
+        schemaFile = path.join(process.resourcesPath, "database", "schema.sql");
+      }
+      if (!fs.existsSync(schemaFile)) {
+        schemaFile = path.join(__dirname, "database", "schema.sql");
+      }
+    }
+
+    if (fs.existsSync(schemaFile)) {
+      const schemaSql = fs.readFileSync(schemaFile, "utf8");
+
+      // Better SQL parsing: remove comments and split by semicolons
+      const statements = schemaSql
+        .split("\n")
+        .filter((line) => !line.trim().startsWith("--")) // Remove comment lines
+        .join("\n")
+        .split(";")
+        .map((stmt) => stmt.trim())
+        .filter((stmt) => stmt && stmt.length > 0); // Remove empty statements
+
+      db.transaction(() => {
+        statements.forEach((stmt) => {
+          if (stmt && stmt.trim()) {
+            console.log("Executing SQL:", stmt.substring(0, 50) + "...");
+            db.prepare(stmt).run();
+          }
+        });
+      })();
+
+      console.log("Schema applied successfully from", schemaFile);
+    } else {
+      console.warn("Schema file not found at:", schemaFile);
+    }
+  } catch (error) {
+    console.error("Error applying schema:", error);
+    throw error;
+  }
+}
+
+// Function to migrate existing database to add missing columns
+async function migrateDatabase() {
+  try {
+    // Check if image_path column exists in products table
+    const tableInfo = db.prepare("PRAGMA table_info(products)").all();
+    const hasImagePath = tableInfo.some(
+      (column) => column.name === "image_path"
+    );
+
+    if (!hasImagePath) {
+      db.prepare("ALTER TABLE products ADD COLUMN image_path TEXT").run();
+    }
+
+    // Check for other potential missing columns
+    const hasCreatedAt = tableInfo.some(
+      (column) => column.name === "created_at"
+    );
+    const hasUpdatedAt = tableInfo.some(
+      (column) => column.name === "updated_at"
+    );
+
+    if (!hasCreatedAt) {
+      console.log("Adding created_at column to products table...");
+      db.prepare(
+        "ALTER TABLE products ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+      ).run();
+    }
+
+    if (!hasUpdatedAt) {
+      console.log("Adding updated_at column to products table...");
+      db.prepare(
+        "ALTER TABLE products ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+      ).run();
+    }
+  } catch (error) {
+    console.error("Migration error:", error);
+    // Don't throw here - migrations might fail if columns already exist
+  }
+}
+
 // --- IPC handlers (use db variable)
 function registerIpcHandlers() {
-  ipcMain.handle("add-product", async (event, { name, price, stock }) => {
-    if (!db) throw new Error("Database not initialized");
-    const stmt = db.prepare(
-      "INSERT INTO products (name, price, stock) VALUES (?, ?, ?)"
-    );
-    const info = stmt.run(name, price, stock);
-    return { success: true, id: info.lastInsertRowid };
-  });
+  ipcMain.handle(
+    "add-product",
+    async (event, { name, price, stock, image_path }) => {
+      if (!db) throw new Error("Database not initialized");
+
+      console.log("Adding product:", { name, price, stock, image_path });
+
+      const stmt = db.prepare(
+        "INSERT INTO products (name, price, stock, image_path) VALUES (?, ?, ?, ?)"
+      );
+      const info = stmt.run(name, price, stock, image_path || null);
+
+      console.log("Product added with ID:", info.lastInsertRowid);
+      return { success: true, id: info.lastInsertRowid };
+    }
+  );
 
   ipcMain.handle("get-products", async () => {
     if (!db) throw new Error("Database not initialized");
-    return db.prepare("SELECT * FROM products").all();
+
+    // Check table structure for debugging
+    const tableInfo = db.prepare("PRAGMA table_info(products)").all();
+    // console.log("Products table structure:", tableInfo);
+
+    const products = db.prepare("SELECT * FROM products").all();
+    console.log("Retrieved products from database:", products);
+    return products;
   });
 
   ipcMain.handle("delete-product", async (event, id) => {
@@ -150,7 +247,93 @@ function registerIpcHandlers() {
     return { success: true, changes: info.changes };
   });
 
+  // Image upload handler
+  ipcMain.handle("upload-image", async (event, imageData) => {
+    try {
+      console.log("Upload-image handler called with:", {
+        name: imageData.name,
+        bufferSize: imageData.buffer ? imageData.buffer.length : "no buffer",
+      });
+
+      const { app } = require("electron");
+      const crypto = require("crypto");
+
+      // Create images directory in userData
+      const userDataPath = app.getPath("userData");
+      const imagesDir = path.join(userDataPath, "images");
+
+      // Ensure images directory exists
+      if (!fs.existsSync(imagesDir)) {
+        fs.mkdirSync(imagesDir, { recursive: true });
+        console.log("Created images directory:", imagesDir);
+      }
+
+      // Generate unique filename
+      const fileExtension = imageData.name.split(".").pop();
+      const uniqueName = `${crypto.randomUUID()}.${fileExtension}`;
+      const imagePath = path.join(imagesDir, uniqueName);
+
+      // Write image file
+      fs.writeFileSync(imagePath, imageData.buffer);
+
+      console.log("Image saved to:", imagePath);
+      return { success: true, path: imagePath, filename: uniqueName };
+    } catch (error) {
+      console.error("Error uploading image:", error);
+      throw error;
+    }
+  });
+
+  // Get image handler (for serving images to frontend)
+  ipcMain.handle("get-image", async (event, imagePath) => {
+    try {
+      if (!imagePath || !fs.existsSync(imagePath)) {
+        return null;
+      }
+
+      const imageBuffer = fs.readFileSync(imagePath);
+      const base64 = imageBuffer.toString("base64");
+      const mimeType = getMimeType(imagePath);
+
+      return {
+        data: `data:${mimeType};base64,${base64}`,
+        exists: true,
+      };
+    } catch (error) {
+      console.error("Error reading image:", error);
+      return null;
+    }
+  });
+
   // add other handlers you need...
+
+  // Debug handler to check database schema
+  ipcMain.handle("debug-database", async () => {
+    if (!db) throw new Error("Database not initialized");
+
+    const tableInfo = db.prepare("PRAGMA table_info(products)").all();
+    const products = db.prepare("SELECT * FROM products").all();
+
+    return {
+      tableStructure: tableInfo,
+      products: products,
+      hasImagePathColumn: tableInfo.some((col) => col.name === "image_path"),
+    };
+  });
+}
+
+// Helper function to get MIME type
+function getMimeType(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  const mimeTypes = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+  };
+  return mimeTypes[ext] || "image/jpeg";
 }
 
 // --- create window

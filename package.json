@@ -15,7 +15,7 @@
     "start:next": "cross-env NODE_ENV=production next start -p 3000",
 
     "dist": "npm run build:next && cross-env NODE_ENV=production electron-builder",
-    "build": "npm run build:next && cross-env NODE_ENV=production electron-builder --prepackaged"
+    "build": "npm run build:next && cross-env NODE_ENV=production electron-builder"
 },
   "dependencies": {
     "better-sqlite3": "^12.2.0",
@@ -56,10 +56,13 @@
       "node_modules/**",
       "database/**",
       "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md}"
-  ],
-"extraResources": [
-  { "from": "database/schema.sql", "to": "schema.sql" }
-],
+    ],
+    "extraResources": [
+      {
+        "from": "database",
+        "to": "database"
+      }
+    ],
 
     "win": {
       "target": [
