@@ -5,22 +5,30 @@ import Image from "next/image";
 interface ImageUploadProps {
   onImageUploaded: (imagePath: string) => void;
   currentImage?: string | null;
+  resetTrigger?: number
 }
 
 export default function ImageUpload({
   onImageUploaded,
   currentImage,
+  resetTrigger
 }: ImageUploadProps) {
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [imageData, setImageData] = useState<string | null>(null);
+
 
   // Load existing image on mount
   React.useEffect(() => {
     if (currentImage && window.electronAPI) {
       loadImage(currentImage);
     }
-  }, [currentImage]);
+
+      console.log("TIGGGGGGGG")
+      setPreview(null)
+      setImageData(null)
+    
+  }, [currentImage, resetTrigger]);
 
   const loadImage = async (imagePath: string) => {
     try {

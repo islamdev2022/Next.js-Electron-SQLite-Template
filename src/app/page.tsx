@@ -18,6 +18,7 @@ export default function ProductsPage() {
     stock: "",
   });
   const [selectedImage, setSelectedImage] = useState<string>("");
+  const [resetTrigger, setResetTrigget] = useState<number>(0)
   const [productImages, setProductImages] = useState<{ [key: number]: string }>(
     {}
   );
@@ -99,9 +100,10 @@ export default function ProductsPage() {
           name: "",
           price: "",
           stock: "",
+          
         });
         setSelectedImage("");
-
+        setResetTrigget(prev => prev + 1)
         // Refresh products list
         await loadProducts();
       } catch (error) {
@@ -205,6 +207,7 @@ export default function ProductsPage() {
             <ImageUpload
               onImageUploaded={handleImageUploaded}
               currentImage={selectedImage}
+              resetTrigger={resetTrigger}
             />
           </div>
 
