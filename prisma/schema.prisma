@@ -26,5 +26,6 @@ model Product {
   created_at DateTime @default(now())
   updated_at DateTime @default(now())
 
+  @@map("products") // Map to existing 'products' table
   @@index([name], name: "idx_products_name")
 }
